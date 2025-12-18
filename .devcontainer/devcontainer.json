@@ -1,0 +1,18 @@
+{
+  "name": "R Markdown Codespace",
+  "image": "rocker/rstudio:latest",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "REditorSupport.r",
+        "quarto.quarto",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  },
+
+  "postCreateCommand": "R -e \"install.packages(c('rmarkdown', 'knitr', 'ggplot2', 'tidyverse'), repos='https://cloud.r-project.org')\"",
+
+  "forwardPorts": [8787]
+}
