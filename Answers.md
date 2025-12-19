@@ -58,7 +58,7 @@
 | Problem | Parameter | Posterior Mean | Additional Statistics |
 |---------|-----------|----------------|----------------------|
 | 1 - Coin Bias | p | 0.6418 | SD = 0.1236 |
-| 2 - Exponential Rate | λ | 0.1703 | 90% CI: [0.029, 0.398] |
-| 3 - Normal Mean | μ | 5.138 | True mean = 5.150 |
+| 2 - Exponential Rate | lambda | 0.1703 | 90% CI: [0.029, 0.398] |
+| 3 - Normal Mean | mu | 5.138 | True mean = 5.150 |
 
 ---
