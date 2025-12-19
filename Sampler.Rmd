@@ -1,0 +1,295 @@
+---
+title: "Inverse Transform Sampling"
+author: "Ian Scarth"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+set.seed(808)
+```
+
+
+```{r}
+metropolis <- function(n, start, dtarget, rproposal) {
+  chain <- numeric(n)
+  chain[1] <- start
+  accepted <- 0
+  
+  for (idx in 2:n) {
+    current <- chain[idx - 1]
+    propose <- rproposal(1, current)
+    
+    #calculate acceptance ratio
+    ratio <- dtarget(propose) / dtarget(current)
+    
+    #accept or reject
+    u <- runif(1)
+    if (u <= ratio) {
+      chain[idx] <- propose
+      accepted <- accepted + 1
+    } else {
+      chain[idx] <- current
+    }
+  }
+  
+  #print acceptance rate for diagnostics
+  cat("Acceptance rate:", accepted / (n - 1), "\n")
+  
+  return(chain)
+}
+```
+
+
+```{r}
+#improved Metropolis sampler using log densities which is better for problems
+#with many points
+metropolis_log <- function(n, start, log_dtarget, rproposal) {
+  chain <- numeric(n)
+  chain[1] <- start
+  accepted <- 0
+  
+  for (idx in 2:n) {
+    current <- chain[idx - 1]
+    propose <- rproposal(1, current)
+    
+    #calculate log acceptance ratio
+    log_ratio <- log_dtarget(propose) - log_dtarget(current)
+    
+    #accept or reject using exponential trick
+    e <- rexp(1)
+    if (e > -log_ratio) {
+      chain[idx] <- propose
+      accepted <- accepted + 1
+    } else {
+      chain[idx] <- current
+    }
+  }
+  
+  cat("Acceptance rate:", accepted / (n - 1), "\n")
+  
+  return(chain)
+}
+```
+
+## Problem 1: Inferring the Bias of a Coin
+```{r}
+#data: 8 heads, 4 tails
+n_heads <- 8
+n_tails <- 4
+
+#prior: uniform on (0, 1)
+prior <- function(p) 1
+
+#likelihood: binomial/bernoulli
+#proportional to p^heads * (1-p)^tails
+likelihood <- function(p) {
+  ifelse(p > 0 & p < 1, p^n_heads * (1 - p)^n_tails, 0)
+}
+
+#posterior (unnormalized): likelihood * prior
+posterior <- function(p) likelihood(p) * prior(p)
+```
+
+```{r}
+#proposal: random walk with uniform perturbation
+#keep proposals within [0, 1] bounds
+rproposal_coin <- function(n, current) {
+  prop <- current + runif(n, -0.1, 0.1)
+  pmin(pmax(prop, 0), 1)  #clamp to [0, 1]
+}
+
+#run the sampler
+set.seed(123)  #for reproducibility
+chain1 <- metropolis(5000, start = 0.5, dtarget = posterior,
+ rproposal = rproposal_coin)
+```
+
+```{r}
+#trace plot to visualize chain movement
+plot(chain1, type = "l", main = "Trace Plot - Problem 1",
+     xlab = "Iteration", ylab = "p")
+```
+
+```{r}
+#discard burn-in (first 500 samples)
+burn_in <- 500
+chain1_burned <- chain1[-(1:burn_in)]
+
+#histogram of posterior samples
+hist(chain1_burned, freq = FALSE, breaks = 30,
+     main = "Posterior Distribution of p",
+     xlab = "p (probability of heads)", col = "lightblue")
+
+#overlay true posterior (beta distribution)
+#for uniform prior, posterior is beta(heads + 1, tails + 1)
+curve(dbeta(x, n_heads + 1, n_tails + 1), add = TRUE, 
+      col = "red", lwd = 2)
+legend("topright", legend = c("Samples", "True Posterior"),
+       col = c("lightblue", "red"), lwd = c(10, 2))
+```
+
+```{r}
+#calculate posterior statistics
+cat("\nPosterior mean of p:", mean(chain1_burned), "\n")
+cat("Posterior standard deviation of p:", sd(chain1_burned), "\n")
+```
+
+
+## Problem 2: Exponential Rate
+```{r}
+#data: waiting times in minutes
+data2 <- c(2.1, 0.9, 1.7, 3.2, 2.8)
+sum_data2 <- sum(data2)
+n_obs <- length(data2)
+
+#likelihood: product of exponential densities
+#proportional to exp(-lambda * sum(x_i))
+likelihood2 <- function(lambda) {
+  ifelse(lambda > 0, exp(-lambda * sum_data2), 0)
+}
+
+#prior: gamma(2, 1), proportional to lambda * exp(-lambda)
+prior2 <- function(lambda) {
+  ifelse(lambda > 0, lambda * exp(-lambda), 0)
+}
+
+#posterior (unnormalized)
+posterior2 <- function(lambda) likelihood2(lambda) * prior2(lambda)
+```
+
+```{r}
+#proposal: random walk
+rproposal_lambda <- function(n, current) {
+  prop <- current + runif(n, -0.3, 0.3)
+  pmax(prop, 0)  #keep lambda positive
+}
+
+#run the sampler
+set.seed(123)
+chain2 <- metropolis(10000, start = 0.5, dtarget = posterior2,
+                     rproposal = rproposal_lambda)
+```
+
+```{r}
+#trace plot
+plot(chain2, type = "l", main = "Trace Plot - Problem 2",
+     xlab = "Iteration", ylab = "lambda")
+```
+
+```{r}
+#discard burn-in
+burn_in <- 1000
+chain2_burned <- chain2[-(1:burn_in)]
+
+#histogram
+hist(chain2_burned, freq = FALSE, breaks = 30,
+     main = "Posterior Distribution of lambda",
+     xlab = "lambda (rate parameter)", col = "lightgreen")
+```
+
+```{r}
+#calculate statistics
+cat("\nPosterior mean of lambda:", mean(chain2_burned), "\n")
+
+#middle 90% credible interval
+quantiles <- quantile(chain2_burned, c(0.05, 0.95))
+cat("5th percentile:", quantiles[1], "\n")
+cat("95th percentile:", quantiles[2], "\n")
+```
+
+## Problem 3: Normal mean with known variance
+```{r}
+#data
+data3 <- c(5.2, 4.8, 5.5, 5.0, 5.3)
+sigma <- 1  #known standard deviation
+
+#using log-densities for numerical stability
+
+#log-likelihood: sum of log normal densities
+log_likelihood3 <- function(mu) {
+  -sum((data3 - mu)^2) / (2 * sigma^2)
+}
+
+#log-prior: n(0, 10)
+#proportional to -mu^2/(2 * 10^2)
+log_prior3 <- function(mu) {
+  -mu^2 / (2 * 10^2)
+}
+
+#log-posterior
+log_posterior3 <- function(mu) {
+  log_likelihood3(mu) + log_prior3(mu)
+}
+```
+
+```{r}
+#proposal: random walk with normal perturbation
+rproposal_mu <- function(n, current) {
+  current + rnorm(n, 0, 0.5)
+}
+
+#run the sampler using log version
+set.seed(123)
+chain3 <- metropolis_log(10000, start = 0, log_dtarget = log_posterior3,
+                         rproposal = rproposal_mu)
+```
+
+```{r}
+#trace plot
+plot(chain3, type = "l", main = "Trace Plot - Problem 3",
+     xlab = "Iteration", ylab = "mu")
+```
+
+```{r}
+#discard burn-in
+burn_in <- 1000
+chain3_burned <- chain3[-(1:burn_in)]
+
+#calculate true posterior parameters
+#for normal likelihood with known variance and normal prior:
+#posterior is normal with updated mean and variance
+prior_mean <- 0
+prior_var <- 10^2
+data_mean <- mean(data3)
+
+posterior_precision <- 1/prior_var + length(data3)/sigma^2
+posterior_mean <- (prior_mean/prior_var + sum(data3)/sigma^2) / posterior_precision
+posterior_sd <- sqrt(1/posterior_precision)
+
+#histogram
+hist(chain3_burned, freq = FALSE, breaks = 30,
+     main = "Posterior Distribution of mu",
+     xlab = "mu (mean parameter)", col = "lightcoral")
+
+#overlay true posterior
+curve(dnorm(x, posterior_mean, posterior_sd), add = TRUE,
+      col = "blue", lwd = 2)
+legend("topright", legend = c("Samples", "True Posterior"),
+       col = c("lightcoral", "blue"), lwd = c(10, 2))
+```
+
+```{r}
+#calculate statistics
+cat("\nPosterior mean of mu:", mean(chain3_burned), "\n")
+cat("True posterior mean:", posterior_mean, "\n")
+```
+
+```{r}
+#final summary of all problems
+cat("\n=== FINAL SUMMARY ===\n")
+cat("\nProblem 1 (Coin Bias):\n")
+cat("  Posterior mean of p:", mean(chain1_burned), "\n")
+cat("  Posterior SD of p:", sd(chain1_burned), "\n")
+
+cat("\nProblem 2 (Exponential Rate):\n")
+cat("  Posterior mean of lambda:", mean(chain2_burned), "\n")
+cat("  90% Credible Interval:", quantiles[1], "to", quantiles[2], "\n")
+
+cat("\nProblem 3 (Normal Mean):\n")
+cat("  Posterior mean of mu:", mean(chain3_burned), "\n")
+```
